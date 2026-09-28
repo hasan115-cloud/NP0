@@ -1,0 +1,25 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# DATABASE_URL is intentionally NOT set here. It must come from Netlify's
+# own environment (Site configuration -> Environment variables, or
+# `netlify env:set DATABASE_URL "..."` via the CLI) so the live Supabase
+# password never lives in source control or this zip. server/db.ts reads
+# process.env.DATABASE_URL at runtime (function cold start, not build time)
+# and switches to the Postgres-backed store whenever it's present.
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["data/**", "extension/**"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
