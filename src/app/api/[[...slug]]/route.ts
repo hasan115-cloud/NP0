@@ -89,54 +89,103 @@ export async function GET(
 
     // GET /api/clients/:id
     if (p0 === "clients" && p1) {
-      const client = await db.getClientById(p1);
-      if (!client) {
-        return json({ error: "Client not found" }, 404);
+      try {
+        const client = await db.getClientById(p1);
+        if (!client) {
+          return json({ error: "Client not found" }, 404);
+        }
+        const [{ events }, alerts] = await Promise.all([
+          db.getUrlEvents({ clientId: p1 }),
+          db.getThreatAlerts(p1),
+        ]);
+        return json({ client, events, alerts });
+      } catch (err) {
+        console.warn("Notice: /api/clients/:id fallback:", err);
+        return json({ error: "Client query failed" }, 404);
       }
-      const [{ events }, alerts] = await Promise.all([
-        db.getUrlEvents({ clientId: p1 }),
-        db.getThreatAlerts(p1),
-      ]);
-      return json({ client, events, alerts });
     }
 
     // GET /api/clients
     if (p0 === "clients") {
-      const clients = await db.getClients();
-      return json({ clients, count: clients.length });
+      try {
+        const clients = await db.getClients();
+        return json({ clients, count: clients.length });
+      } catch (err) {
+        console.warn("Notice: /api/clients fallback:", err);
+        return json({ clients: [], count: 0 });
+      }
     }
 
     // GET /api/threats
     if (p0 === "threats") {
       const clientId = req.nextUrl.searchParams.get("clientId") || undefined;
-      const alerts = await db.getThreatAlerts(clientId);
-      return json({ alerts, count: alerts.length });
+      try {
+        const alerts = await db.getThreatAlerts(clientId);
+        return json({ alerts, count: alerts.length });
+      } catch (err) {
+        console.warn("Notice: /api/threats fallback:", err);
+        return json({ alerts: [], count: 0 });
+      }
     }
 
     // GET /api/rules
     if (p0 === "rules") {
-      const [whitelist, phishing] = await Promise.all([
-        db.getWhitelistRules(),
-        db.getPhishingRules(),
-      ]);
-      return json({ whitelist, phishing });
+      try {
+        const [whitelist, phishing] = await Promise.all([
+          db.getWhitelistRules(),
+          db.getPhishingRules(),
+        ]);
+        return json({ whitelist, phishing });
+      } catch (err) {
+        console.warn("Notice: /api/rules fallback:", err);
+        return json({ whitelist: [], phishing: [] });
+      }
     }
 
     // GET /api/stats
     if (p0 === "stats") {
       const clientId = req.nextUrl.searchParams.get("clientId") || undefined;
-      const stats = await db.getDashboardStats(clientId);
-      return json(stats);
+      try {
+        const stats = await db.getDashboardStats(clientId);
+        return json(stats);
+      } catch (err: any) {
+        console.warn("Notice: /api/stats fallback activated:", err);
+        return json({
+          scope: clientId || "ALL",
+          totalSystems: 0,
+          urlsMonitored: 0,
+          allowedUrls: 0,
+          phishingIntercepted: 0,
+          activeAlerts: 0,
+          breakdown: { evaluated: 0, safe: 0, suspicious: 0, phishing: 0 },
+          recentEvents: [],
+          topThreatDomains: []
+        });
+      }
     }
 
     // GET /api/reports
     if (p0 === "reports") {
       const clientId = req.nextUrl.searchParams.get("clientId") || undefined;
-      if (clientId && clientId !== "ALL" && !(await db.clientExists(clientId))) {
-        return json({ error: "System not found" }, 404);
+      try {
+        if (clientId && clientId !== "ALL" && !(await db.clientExists(clientId))) {
+          return json({ error: "System not found" }, 404);
+        }
+        const report = await db.getReportData(clientId);
+        return json(report);
+      } catch (err: any) {
+        console.warn("Notice: /api/reports fallback activated:", err);
+        return json({
+          scope: clientId || "ALL",
+          generatedAt: new Date().toISOString(),
+          systems: [],
+          summary: { totalEvaluated: 0, safe: 0, suspicious: 0, phishing: 0, activeAlerts: 0 },
+          topThreatDomains: [],
+          events: [],
+          alerts: [],
+          perSystem: []
+        });
       }
-      const report = await db.getReportData(clientId);
-      return json(report);
     }
 
     // GET /api/events
@@ -148,14 +197,19 @@ export async function GET(
       const limit = sp.get("limit") ? parseInt(sp.get("limit")!, 10) : undefined;
       const offset = sp.get("offset") ? parseInt(sp.get("offset")!, 10) : 0;
 
-      const result = await db.getUrlEvents({
-        clientId,
-        classification,
-        search,
-        limit,
-        offset,
-      });
-      return json(result);
+      try {
+        const result = await db.getUrlEvents({
+          clientId,
+          classification,
+          search,
+          limit,
+          offset,
+        });
+        return json(result);
+      } catch (err) {
+        console.warn("Notice: /api/events fallback activated:", err);
+        return json({ events: [], total: 0 });
+      }
     }
 
     return json({ error: `Not found: /api/${slug.join("/")}` }, 404);
@@ -238,31 +292,37 @@ export async function POST(
 
       const result = await classifyUrl(url);
 
-      await db.recordUrlEvent({
-        eventId: typeof eventId === "string" ? eventId : undefined,
-        clientId,
-        clientName,
-        url,
-        domain: result.domain,
-        classification: result.verdict,
-        verdict: result.action,
-        score: result.score,
-        reason: result.reasons.join("; ") || "Clean analysis",
-        source,
-        ruleTriggered: Boolean(result.whitelisted || result.policyMatched),
-        ruleType: result.ruleType || null,
-      });
-
-      if (result.verdict === "PHISHING") {
-        await db.recordThreatAlert({
+      let recordedEvent: any = null;
+      try {
+        const rec = await db.recordUrlEvent({
+          eventId: typeof eventId === "string" ? eventId : undefined,
           clientId,
           clientName,
           url,
           domain: result.domain,
+          classification: result.verdict,
+          verdict: result.action,
           score: result.score,
-          reasons: result.reasons,
+          reason: result.reasons.join("; ") || "Clean analysis",
           source,
+          ruleTriggered: Boolean(result.whitelisted || result.policyMatched),
+          ruleType: result.ruleType || null,
         });
+        recordedEvent = rec?.event;
+
+        if (result.verdict === "PHISHING") {
+          await db.recordThreatAlert({
+            clientId,
+            clientName,
+            url,
+            domain: result.domain,
+            score: result.score,
+            reasons: result.reasons,
+            source,
+          });
+        }
+      } catch (dbErr) {
+        console.warn("Notice: scan event persistence error:", dbErr);
       }
 
       return json({

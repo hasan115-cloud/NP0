@@ -12,8 +12,18 @@ import {
 } from "./types";
 import { IDatabase, UrlEventFilters, UrlEventsResult, DashboardStatsResult, ReportDataResult } from "./dbTypes";
 import { PostgresDatabase } from "./pgdb";
+import { SupabaseRestDatabase } from "./supabaseRestDb";
+import { ResilientDatabase } from "./resilientDb";
+import { getSupabaseClient, isApiKey, isPostgresUrl, parseSupabaseConnection } from "./supabase";
 
-const IS_SERVERLESS = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const IS_SERVERLESS = Boolean(
+  process.env.VERCEL ||
+  process.env.VERCEL_ENV ||
+  process.env.NOW_REGION ||
+  process.env.NETLIFY ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.FUNCTION_NAME
+);
 const DATA_DIR = IS_SERVERLESS ? path.join("/tmp", "phishguard_data") : path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "phishguard_db.json");
 const BUNDLED_DB_FILE = path.resolve(process.cwd(), "data", "phishguard_db.json");
@@ -845,18 +855,56 @@ export const FileDatabaseImpl = FileDatabase;
  * know or care which backend is active.
  */
 function selectDatabase(): IDatabase {
-  const url = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.POSTGRES_URL;
-  if (url && url.trim()) {
-    const isSupabase = url.includes("supabase");
-    if (isSupabase) {
-      console.log("PhishGuard: Successfully connected to Supabase PostgreSQL database — all stats, telemetry, and security policies are fetched from Supabase.");
-    } else {
-      console.log("PhishGuard: using Postgres-backed storage (DATABASE_URL is set) — consistent across all instances.");
-    }
-    return new PostgresDatabase(url);
+  const rawUrl = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.POSTGRES_URL;
+  const isKey = rawUrl && isApiKey(rawUrl);
+
+  // If someone passed an API key in DATABASE_URL, set it as SUPABASE_KEY
+  if (isKey && rawUrl) {
+    process.env.SUPABASE_KEY = rawUrl.trim();
   }
-  console.log("PhishGuard: using local file-backed storage (no DATABASE_URL set) — correct for a single long-lived process only.");
-  return new FileDatabase();
+
+  // Check if a direct Postgres connection string is available
+  const hasValidPostgres = rawUrl && isPostgresUrl(rawUrl);
+
+  // Check if a Supabase REST client can be initialized
+  const supabaseClient = getSupabaseClient();
+  const config = parseSupabaseConnection(rawUrl);
+
+  let pgDb: PostgresDatabase | null = null;
+  if (hasValidPostgres && rawUrl) {
+    try {
+      pgDb = new PostgresDatabase(rawUrl);
+      console.log("PhishGuard: Initialized Postgres database pooler.");
+    } catch (e) {
+      console.warn("Notice: Failed to initialize Postgres database:", e);
+    }
+  }
+
+  let restDb: SupabaseRestDatabase | null = null;
+  if (supabaseClient) {
+    try {
+      restDb = new SupabaseRestDatabase(supabaseClient, config?.supabaseUrl || "https://tfcxufkprwywemxyyeqd.supabase.co");
+      console.log("PhishGuard: Initialized Supabase REST database client (supports Vercel serverless & API keys).");
+    } catch (e) {
+      console.warn("Notice: Failed to initialize Supabase REST database:", e);
+    }
+  }
+
+  const fileDb = new FileDatabase();
+
+  // Prefer Postgres if configured, with Supabase REST and FileDatabase fallbacks
+  if (pgDb) {
+    const secondary = restDb || fileDb;
+    return new ResilientDatabase(pgDb, secondary);
+  }
+
+  // If Supabase REST client is available (e.g. sb_publishable key or SUPABASE_KEY set)
+  if (restDb) {
+    return new ResilientDatabase(restDb, fileDb);
+  }
+
+  console.log("PhishGuard: using local file-backed storage — correct for a single long-lived process.");
+  return fileDb;
 }
 
 export const db: IDatabase = selectDatabase();
