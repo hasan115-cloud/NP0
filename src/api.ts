@@ -103,7 +103,13 @@ export async function deletePhishingRule(id: string): Promise<boolean> {
   return res.ok;
 }
 
-export async function fetchServerInfo(): Promise<{ serverUrl: string; version: string; status: string }> {
+export async function fetchServerInfo(): Promise<{
+  serverUrl: string;
+  version: string;
+  status: string;
+  database?: string;
+  databaseHost?: string;
+}> {
   const res = await fetch("/api/info");
   if (!res.ok) throw new Error("Failed to load server info");
   return res.json();

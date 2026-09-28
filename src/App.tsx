@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -9,7 +11,7 @@ import { ThreatAlertsView } from "./components/ThreatAlertsView";
 import { InstallExtensionView } from "./components/InstallExtensionView";
 import { ReportsView } from "./components/ReportsView";
 import { DashboardStats, EnrolledClient, NavigationTab } from "./types";
-import { fetchClients, fetchStats } from "./api";
+import { fetchClients, fetchServerInfo, fetchStats } from "./api";
 
 const EMPTY_STATS: DashboardStats = {
   totalSystems: 0,
@@ -32,6 +34,7 @@ export default function App() {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [clients, setClients] = useState<EnrolledClient[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [serverInfo, setServerInfo] = useState<{ database?: string; databaseHost?: string } | null>(null);
 
   // The selected system is owned HERE, not inside a single view, so that the
   // Overview counts and the URL History table always describe the same
@@ -65,6 +68,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchServerInfo().then(setServerInfo).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     loadDashboardData(false, selectedSystem);
     // Poll telemetry every 6 seconds to capture live heartbeats and navigation scans
     const timer = setInterval(() => {
@@ -81,6 +88,8 @@ export default function App() {
         totalCount={clients.length}
         onRefresh={() => loadDashboardData(false)}
         isRefreshing={isRefreshing}
+        database={serverInfo?.database}
+        databaseHost={serverInfo?.databaseHost}
       />
 
       {/* Main Body */}

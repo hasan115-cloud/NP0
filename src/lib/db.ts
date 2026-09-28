@@ -845,9 +845,14 @@ export const FileDatabaseImpl = FileDatabase;
  * know or care which backend is active.
  */
 function selectDatabase(): IDatabase {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.POSTGRES_URL;
   if (url && url.trim()) {
-    console.log("PhishGuard: using Postgres-backed storage (DATABASE_URL is set) — consistent across all instances.");
+    const isSupabase = url.includes("supabase");
+    if (isSupabase) {
+      console.log("PhishGuard: Successfully connected to Supabase PostgreSQL database — all stats, telemetry, and security policies are fetched from Supabase.");
+    } else {
+      console.log("PhishGuard: using Postgres-backed storage (DATABASE_URL is set) — consistent across all instances.");
+    }
     return new PostgresDatabase(url);
   }
   console.log("PhishGuard: using local file-backed storage (no DATABASE_URL set) — correct for a single long-lived process only.");

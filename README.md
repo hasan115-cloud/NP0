@@ -33,7 +33,7 @@ storage backends, and the server picks between them automatically:
   Cloud Run with `min-instances`/`max-instances` both set to 1, etc.).
 
 - **`DATABASE_URL` set.** The server instead uses a real Postgres database
-  (see `server/pgdb.ts`) — compatible with Supabase, Neon, Netlify DB, RDS,
+  (see `src/lib/pgdb.ts`) — compatible with Supabase, Neon, Netlify DB, RDS,
   or any self-hosted Postgres. **This is required for correct behavior on
   Netlify Functions**, or any other deployment where more than one instance
   of the server can be running at once: each serverless function instance

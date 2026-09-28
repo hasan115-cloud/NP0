@@ -195,7 +195,54 @@ export class PostgresDatabase implements IDatabase {
         occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         stats JSONB
       );
+
+      -- Harmonize columns across migrations
+      ALTER TABLE threat_alerts ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ DEFAULT now();
+      ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ DEFAULT now();
+
+      -- Ensure fallback workstation exists for foreign key constraints
+      INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
+      VALUES ('anonymous', 'Default Workstation', now(), now(), 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+      ON CONFLICT (id) DO NOTHING;
     `);
+
+    // Baseline security policy rules if empty
+    try {
+      const wlCount = await this.pool.query("SELECT COUNT(*) AS count FROM whitelist_rules");
+      if (parseInt(wlCount.rows[0]?.count || "0", 10) === 0) {
+        await this.pool.query(`
+          INSERT INTO whitelist_rules (id, pattern, description, added_by) VALUES
+            ('wl_corp_internal', '*.corp.internal', 'Corporate internal network and infrastructure', 'System Policy'),
+            ('wl_google_ws', '*.google.com', 'Google Workspace and enterprise authentication', 'System Policy'),
+            ('wl_msft_365', '*.microsoft.com', 'Microsoft 365, Azure AD, and Office services', 'System Policy'),
+            ('wl_github', '*.github.com', 'Enterprise GitHub source repositories', 'System Policy')
+          ON CONFLICT (pattern) DO NOTHING;
+        `);
+      }
+
+      const phCount = await this.pool.query("SELECT COUNT(*) AS count FROM phishing_rules");
+      if (parseInt(phCount.rows[0]?.count || "0", 10) === 0) {
+        await this.pool.query(`
+          INSERT INTO phishing_rules (id, pattern, severity, reason, added_by) VALUES
+            ('ph_login_suspicious', '*login-verify-account*', 'CRITICAL', 'Interception rule: Account verification and credential harvesting pattern', 'System Policy'),
+            ('ph_banking_alert', '*security-update-banking*', 'CRITICAL', 'Interception rule: High-risk banking credential harvesting pattern', 'System Policy'),
+            ('ph_zip_tld', '*.zip', 'HIGH', 'Interception rule: Suspicious Top-Level Domain (TLD) payload delivery', 'System Policy')
+          ON CONFLICT (pattern) DO NOTHING;
+        `);
+      }
+    } catch (seedErr) {
+      console.warn("Notice: Baseline rule seeding skipped:", seedErr);
+    }
+  }
+
+  public getDatabaseInfo(): { isSupabase: boolean; host: string } {
+    const isSupabase = Boolean((this.pool as any)?.options?.connectionString?.includes("supabase"));
+    let host = "postgres";
+    try {
+      const u = new URL((this.pool as any)?.options?.connectionString || "");
+      host = u.hostname;
+    } catch {}
+    return { isSupabase, host };
   }
 
   private async q<T = any>(text: string, params: any[] = []): Promise<{ rows: T[] }> {
@@ -205,11 +252,16 @@ export class PostgresDatabase implements IDatabase {
 
   // ─── mapping helpers: snake_case rows -> the app's existing camelCase shapes ───
   private mapClient(r: any): EnrolledClient {
-    const lastSeenIso = new Date(r.last_seen).toISOString();
+    const timeVal = r.last_seen || r.created_at || new Date();
+    const parsedTime = new Date(timeVal);
+    const lastSeenIso = !isNaN(parsedTime.getTime()) ? parsedTime.toISOString() : new Date().toISOString();
+    const firstSeenVal = r.first_seen || r.created_at || new Date();
+    const parsedFirst = new Date(firstSeenVal);
+    const firstSeenIso = !isNaN(parsedFirst.getTime()) ? parsedFirst.toISOString() : new Date().toISOString();
     return {
       id: r.id,
       clientName: r.client_name,
-      firstSeen: new Date(r.first_seen).toISOString(),
+      firstSeen: firstSeenIso,
       lastSeen: lastSeenIso,
       status: r.status,
       // Derived at READ time, same threshold and semantics as the file
@@ -229,17 +281,20 @@ export class PostgresDatabase implements IDatabase {
   }
 
   private mapUrlEvent(r: any): UrlEvent {
+    const timeVal = r.occurred_at || r.created_at || new Date();
+    const parsedTime = new Date(timeVal);
+    const validIso = !isNaN(parsedTime.getTime()) ? parsedTime.toISOString() : new Date().toISOString();
     return {
       id: r.id,
       eventId: r.event_id || undefined,
-      timestamp: new Date(r.occurred_at).toISOString(),
+      timestamp: validIso,
       clientId: r.client_id,
       clientName: r.client_name,
       url: r.url,
       domain: r.domain,
       classification: r.classification,
       verdict: r.verdict,
-      score: typeof r.score === "number" ? r.score : parseFloat(r.score),
+      score: typeof r.score === "number" ? r.score : parseFloat(r.score || "0"),
       reason: r.reason,
       source: r.source,
       ruleTriggered: Boolean(r.rule_triggered),
@@ -248,14 +303,17 @@ export class PostgresDatabase implements IDatabase {
   }
 
   private mapThreatAlert(r: any): ThreatAlert {
+    const timeVal = r.occurred_at || r.created_at || new Date();
+    const parsedTime = new Date(timeVal);
+    const validIso = !isNaN(parsedTime.getTime()) ? parsedTime.toISOString() : new Date().toISOString();
     return {
       id: r.id,
-      timestamp: new Date(r.occurred_at).toISOString(),
+      timestamp: validIso,
       clientId: r.client_id,
       clientName: r.client_name,
       url: r.url,
       domain: r.domain,
-      score: typeof r.score === "number" ? r.score : parseFloat(r.score),
+      score: typeof r.score === "number" ? r.score : parseFloat(r.score || "0"),
       reasons: Array.isArray(r.reasons) ? r.reasons : [],
       source: r.source,
       status: r.status
@@ -263,22 +321,28 @@ export class PostgresDatabase implements IDatabase {
   }
 
   private mapWhitelistRule(r: any): WhitelistRule {
+    const timeVal = r.created_at || new Date();
+    const parsedTime = new Date(timeVal);
+    const validIso = !isNaN(parsedTime.getTime()) ? parsedTime.toISOString() : new Date().toISOString();
     return {
       id: r.id,
       pattern: r.pattern,
       description: r.description || "Whitelisted domain",
-      createdAt: new Date(r.created_at).toISOString(),
+      createdAt: validIso,
       addedBy: r.added_by || "Admin"
     };
   }
 
   private mapPhishingRule(r: any): PhishingRule {
+    const timeVal = r.created_at || new Date();
+    const parsedTime = new Date(timeVal);
+    const validIso = !isNaN(parsedTime.getTime()) ? parsedTime.toISOString() : new Date().toISOString();
     return {
       id: r.id,
       pattern: r.pattern,
       severity: r.severity,
       reason: r.reason || "Threat rule",
-      createdAt: new Date(r.created_at).toISOString(),
+      createdAt: validIso,
       addedBy: r.added_by || "Admin"
     };
   }
@@ -482,11 +546,23 @@ export class PostgresDatabase implements IDatabase {
   // ─── Threat alerts ───────────────────────────────────────────────────────
   public async recordThreatAlert(alert: Omit<ThreatAlert, "id" | "timestamp" | "status">): Promise<ThreatAlert> {
     const id = `alt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date();
+    const cId = alert.clientId || "anonymous";
+    const cName = alert.clientName || "Workstation";
+
+    // Ensure client row exists to satisfy foreign key constraint fk_threat_alerts_client
+    await this.q(
+      `INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
+       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+       ON CONFLICT (id) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+      [cId, cName, now]
+    );
+
     const { rows } = await this.q(
-      `INSERT INTO threat_alerts (id, client_id, client_name, url, domain, score, reasons, source, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE')
+      `INSERT INTO threat_alerts (id, client_id, client_name, url, domain, score, reasons, source, status, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE', $9)
        RETURNING *`,
-      [id, alert.clientId, alert.clientName, alert.url, alert.domain, alert.score, JSON.stringify(alert.reasons || []), alert.source]
+      [id, cId, cName, alert.url, alert.domain, alert.score, JSON.stringify(alert.reasons || []), alert.source, now]
     );
     return this.mapThreatAlert(rows[0]);
   }
@@ -525,6 +601,17 @@ export class PostgresDatabase implements IDatabase {
       }
     }
 
+    const cId = event.clientId || "anonymous";
+    const cName = event.clientName || "Workstation";
+
+    // Ensure client row exists to satisfy foreign key constraint fk_url_events_client
+    await this.q(
+      `INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
+       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+       ON CONFLICT (id) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
+      [cId, cName, occurred]
+    );
+
     // ON CONFLICT DO NOTHING is the atomic dedup: Postgres itself refuses a
     // second row with the same event_id, even under real concurrent writes
     // from separate connections/instances — there is no window in which
@@ -538,8 +625,8 @@ export class PostgresDatabase implements IDatabase {
       [
         id,
         event.eventId || null,
-        event.clientId,
-        event.clientName,
+        cId,
+        cName,
         event.url,
         event.domain,
         event.classification,

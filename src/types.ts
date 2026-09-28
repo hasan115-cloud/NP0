@@ -120,3 +120,57 @@ export interface DatabaseSchema {
   whitelistRules: WhitelistRule[];
   phishingRules: PhishingRule[];
 }
+
+export type NavigationTab =
+  | "overview"
+  | "enrolled_systems"
+  | "url_history"
+  | "security_rules"
+  | "threat_alerts"
+  | "install_extension"
+  | "reports";
+
+export interface DashboardStats {
+  totalSystems: number;
+  urlsMonitored: number;
+  allowedUrls: number;
+  phishingIntercepted: number;
+  activeAlerts: number;
+  breakdown: {
+    evaluated: number;
+    safe: number;
+    suspicious: number;
+    phishing: number;
+  };
+  recentEvents: UrlEvent[];
+  topThreatDomains: { domain: string; count: number }[];
+}
+
+export interface ReportData {
+  scope: string;
+  generatedAt: string;
+  systems: EnrolledClient[];
+  summary: {
+    totalEvaluated: number;
+    safe: number;
+    suspicious: number;
+    phishing: number;
+    activeAlerts: number;
+  };
+  topThreatDomains: { domain: string; count: number }[];
+  events: UrlEvent[];
+  alerts: ThreatAlert[];
+  perSystem: {
+    clientId: string;
+    clientName: string;
+    os: string;
+    browser: string;
+    totalScanned: number;
+    safe: number;
+    suspicious: number;
+    phishing: number;
+    alerts?: number;
+    activeAlerts: number;
+  }[];
+}
+

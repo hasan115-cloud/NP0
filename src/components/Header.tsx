@@ -13,12 +13,16 @@ interface HeaderProps {
   totalCount: number;
   onRefresh: () => void;
   isRefreshing: boolean;
+  database?: string;
+  databaseHost?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   totalCount,
   onRefresh,
-  isRefreshing
+  isRefreshing,
+  database,
+  databaseHost
 }) => {
   return (
     <header className="h-16 bg-[#0e0e0e] border-b border-[#262626] px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md gap-3 overflow-hidden">
@@ -42,6 +46,19 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Status & Actions */}
       <div className="flex items-center gap-2 sm:gap-4 min-w-0 shrink-0">
+        {/* Supabase Status Indicator */}
+        {database === "supabase" && (
+          <div
+            className="hidden lg:flex items-center gap-1.5 bg-[#101c13] border border-emerald-800/60 px-2.5 py-1.5 rounded-lg text-xs shrink-0"
+            title={`Connected to Supabase PostgreSQL: ${databaseHost || 'cloud'}`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            <span className="text-emerald-300 font-mono text-[11px] font-semibold whitespace-nowrap">
+              Supabase Connected
+            </span>
+          </div>
+        )}
+
         {/* Enrolled Endpoints Metric */}
         <div className="hidden md:flex items-center gap-2 bg-[#161616] border border-[#2a2a2a] px-3 py-1.5 rounded-lg text-xs shrink-0">
           <Shield className="w-3.5 h-3.5 text-[#ffffff]" />
