@@ -34,6 +34,36 @@ export interface ScanResult {
   ruleType?: "WHITELIST" | "PHISHING" | null;
 }
 
+export function matchesRulePattern(url: string, hostname: string, rawPattern: string): boolean {
+  if (!rawPattern) return false;
+  const p = rawPattern.trim().toLowerCase().replace(/^https?:\/\//, "");
+  const h = hostname.toLowerCase().replace(/^www\./, "");
+  const u = url.toLowerCase();
+
+  // Pattern with wildcards on both ends, e.g. *keyword*
+  if (p.startsWith("*") && p.endsWith("*") && p.length > 2) {
+    const sub = p.slice(1, -1);
+    return u.includes(sub) || h.includes(sub);
+  }
+  // Subdomain wildcard, e.g. *.google.com
+  if (p.startsWith("*.")) {
+    const base = p.slice(2);
+    return h === base || h.endsWith("." + base);
+  }
+  // Suffix/TLD wildcard, e.g. *.zip
+  if (p.startsWith("*")) {
+    const suffix = p.slice(1);
+    return h.endsWith(suffix) || u.endsWith(suffix);
+  }
+  // Prefix wildcard
+  if (p.endsWith("*")) {
+    const prefix = p.slice(0, -1);
+    return h.startsWith(prefix) || u.includes(prefix);
+  }
+  // Exact domain, subdomain, or url substring match
+  return h === p || h.endsWith("." + p) || u.includes(p);
+}
+
 export async function classifyUrl(targetUrl: string): Promise<ScanResult> {
   let urlObj: URL;
   try {
@@ -56,7 +86,7 @@ export async function classifyUrl(targetUrl: string): Promise<ScanResult> {
   // 1. Check Server Whitelist Rules
   const whitelist = await db.getWhitelistRules();
   for (const rule of whitelist) {
-    if (hostname === rule.pattern || hostname.endsWith("." + rule.pattern) || fullUrlLower.includes(rule.pattern)) {
+    if (matchesRulePattern(fullUrlLower, hostname, rule.pattern)) {
       return {
         verdict: "SAFE",
         action: "ALLOWED",
@@ -72,7 +102,7 @@ export async function classifyUrl(targetUrl: string): Promise<ScanResult> {
   // 2. Check Server Phishing Rules
   const phishingRules = await db.getPhishingRules();
   for (const rule of phishingRules) {
-    if (hostname === rule.pattern || hostname.endsWith("." + rule.pattern) || fullUrlLower.includes(rule.pattern)) {
+    if (matchesRulePattern(fullUrlLower, hostname, rule.pattern)) {
       return {
         verdict: "PHISHING",
         action: "BLOCKED",

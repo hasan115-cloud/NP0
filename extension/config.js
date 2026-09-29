@@ -1,7 +1,7 @@
 // PhishGuard Extension Configuration
-// Pre-configured by PhishGuard Server on package download or customizable via Extension popup settings
+// Pre-configured by PhishGuard Enterprise Security Hub on download or customizable in popup settings
 const PHISHGUARD_DEFAULT_CONFIG = {
-    SERVER_URL: "http://localhost:3000"
+    SERVER_URL: ""
 };
 
 if (typeof self !== "undefined") {

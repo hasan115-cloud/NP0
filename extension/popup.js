@@ -3,7 +3,9 @@
 let currentTabUrl  = "";
 let currentDomain  = "";
 let isTrusted      = false;
-let currentServer  = "http://localhost:3000";
+let currentServer  = (typeof PHISHGUARD_DEFAULT_CONFIG !== "undefined" && PHISHGUARD_DEFAULT_CONFIG.SERVER_URL)
+    ? PHISHGUARD_DEFAULT_CONFIG.SERVER_URL.trim().replace(/\/$/, "")
+    : "";
 
 function shorten(url, n = 45) {
     return url.length > n ? url.substring(0, n) + "…" : url;
@@ -297,14 +299,26 @@ async function updateRulesNow() {
 async function saveServerSettings() {
     const input = document.getElementById("serverUrlInput");
     let val = (input.value || "").trim().replace(/\/$/, "");
-    if (!val) val = "http://localhost:3000";
+    if (!val) {
+        val = (typeof PHISHGUARD_DEFAULT_CONFIG !== "undefined" && PHISHGUARD_DEFAULT_CONFIG.SERVER_URL)
+            ? PHISHGUARD_DEFAULT_CONFIG.SERVER_URL.trim().replace(/\/$/, "")
+            : currentServer;
+    }
+    if (!val) {
+        const msg = document.getElementById("saveStatusMsg");
+        msg.style.color = "#ff6b7a";
+        msg.textContent = "Please enter server URL";
+        setTimeout(() => { msg.textContent = ""; }, 3000);
+        return;
+    }
     if (!val.startsWith("http://") && !val.startsWith("https://")) {
-        val = "http://" + val;
+        val = "https://" + val;
     }
     await chrome.storage.local.set({ phishguardServerUrl: val });
     currentServer = val;
     chrome.runtime.sendMessage({ action: "reconnectServer", serverUrl: val }).catch(() => {});
     const msg = document.getElementById("saveStatusMsg");
+    msg.style.color = "#4ade80";
     msg.textContent = "Saved! Reconnecting...";
     setTimeout(() => { msg.textContent = ""; }, 3000);
     updateServerStatusUI();

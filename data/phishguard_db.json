@@ -1,1 +1,143 @@
-{"clients":[],"heartbeats":[],"threatAlerts":[],"whitelistRules":[],"phishingRules":[]}
+{
+  "clients": [
+    {
+      "id": "workstation-sec-hq",
+      "clientName": "SecOps-HQ-Station-01",
+      "firstSeen": "2026-09-28T09:15:00.000Z",
+      "lastSeen": "2026-09-29T12:20:00.000Z",
+      "status": "ENROLLED",
+      "extensionVersion": "1.4.0",
+      "browser": "Chrome 130",
+      "os": "macOS Sequoia",
+      "platform": "arm64",
+      "ip": "10.0.4.12",
+      "telemetryStats": {
+        "totalScanned": 10,
+        "phishingBlocked": 3,
+        "suspiciousDetected": 1,
+        "safeEvaluated": 6
+      }
+    },
+    {
+      "id": "workstation-fin-04",
+      "clientName": "Finance-Terminal-04",
+      "firstSeen": "2026-09-28T11:30:00.000Z",
+      "lastSeen": "2026-09-29T12:18:00.000Z",
+      "status": "ENROLLED",
+      "extensionVersion": "1.4.0",
+      "browser": "Chrome 130",
+      "os": "Windows 11",
+      "platform": "x86_64",
+      "ip": "10.0.8.44",
+      "telemetryStats": {
+        "totalScanned": 6,
+        "phishingBlocked": 1,
+        "suspiciousDetected": 1,
+        "safeEvaluated": 4
+      }
+    }
+  ],
+  "heartbeats": [],
+  "threatAlerts": [
+    {
+      "clientId": "workstation-sec-hq",
+      "clientName": "SecOps-HQ-Station-01",
+      "url": "https://verify-login-verify-account.bank-portal.com/login",
+      "domain": "verify-login-verify-account.bank-portal.com",
+      "score": 0.99,
+      "reasons": [
+        "Enforced by Administrator Phishing Policy: \"*login-verify-account*\" — Interception rule: Account verification and credential harvesting pattern"
+      ],
+      "source": "extension",
+      "id": "alt_1790710637201_yhkjz",
+      "timestamp": "2026-09-29T19:37:17.201Z",
+      "status": "ACTIVE"
+    },
+    {
+      "id": "alt_seed_01",
+      "timestamp": "2026-09-29T11:42:00.000Z",
+      "clientId": "workstation-sec-hq",
+      "clientName": "SecOps-HQ-Station-01",
+      "url": "https://secure-login-verify-account.bank-auth-portal.zip/login",
+      "domain": "secure-login-verify-account.bank-auth-portal.zip",
+      "score": 0.99,
+      "reasons": [
+        "Enforced by Administrator Phishing Policy: \"*login-verify-account*\"",
+        "High-abuse top-level domain (.zip)"
+      ],
+      "source": "extension-navigation",
+      "status": "ACTIVE"
+    },
+    {
+      "id": "alt_seed_02",
+      "timestamp": "2026-09-29T10:15:00.000Z",
+      "clientId": "workstation-fin-04",
+      "clientName": "Finance-Terminal-04",
+      "url": "https://security-update-banking-alert.xyz/verify",
+      "domain": "security-update-banking-alert.xyz",
+      "score": 0.99,
+      "reasons": [
+        "Enforced by Administrator Phishing Policy: \"*security-update-banking*\"",
+        "High-abuse top-level domain (.xyz)"
+      ],
+      "source": "extension-navigation",
+      "status": "ACKNOWLEDGED"
+    }
+  ],
+  "whitelistRules": [
+    {
+      "id": "wl_corp_internal",
+      "pattern": "*.corp.internal",
+      "description": "Corporate internal network and infrastructure",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    },
+    {
+      "id": "wl_google_ws",
+      "pattern": "*.google.com",
+      "description": "Google Workspace and enterprise authentication",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    },
+    {
+      "id": "wl_msft_365",
+      "pattern": "*.microsoft.com",
+      "description": "Microsoft 365, Azure AD, and Office services",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    },
+    {
+      "id": "wl_github",
+      "pattern": "*.github.com",
+      "description": "Enterprise GitHub source repositories",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    }
+  ],
+  "phishingRules": [
+    {
+      "id": "ph_login_suspicious",
+      "pattern": "*login-verify-account*",
+      "severity": "CRITICAL",
+      "reason": "Interception rule: Account verification and credential harvesting pattern",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    },
+    {
+      "id": "ph_banking_alert",
+      "pattern": "*security-update-banking*",
+      "severity": "CRITICAL",
+      "reason": "Interception rule: High-risk banking credential harvesting pattern",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    },
+    {
+      "id": "ph_zip_tld",
+      "pattern": "*.zip",
+      "severity": "HIGH",
+      "reason": "Interception rule: Suspicious Top-Level Domain (TLD) payload delivery",
+      "createdAt": "2026-09-28T08:00:00.000Z",
+      "addedBy": "System Policy"
+    }
+  ]
+}

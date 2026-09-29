@@ -44,7 +44,7 @@ export function getResolvedSupabaseKey(): string | null {
     return dbUrl.trim();
   }
 
-  return "sb_publishable_n_b7T_iYLfS3GIIKuuKmtA_lKe1vV-3";
+  return null;
 }
 
 export function parseSupabaseConnection(connStr?: string): SupabaseConfig | null {
@@ -58,13 +58,15 @@ export function parseSupabaseConnection(connStr?: string): SupabaseConfig | null
 
   // If raw is an API key, return config with that key
   if (raw && isApiKey(raw)) {
-    const supabaseUrl =
-      process.env.SUPABASE_URL ||
-      process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      "https://tfcxufkprwywemxyyeqd.supabase.co";
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    if (!supabaseUrl) return null;
+    let projectRef = "";
+    try {
+      projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+    } catch {}
     return {
-      projectRef: "tfcxufkprwywemxyyeqd",
-      host: "tfcxufkprwywemxyyeqd.supabase.co",
+      projectRef,
+      host: projectRef ? `${projectRef}.supabase.co` : "",
       port: "443",
       supabaseUrl,
       apiKey: raw.trim(),
@@ -73,13 +75,15 @@ export function parseSupabaseConnection(connStr?: string): SupabaseConfig | null
 
   if (!raw || !isPostgresUrl(raw)) {
     if (resolvedKey) {
-      const supabaseUrl =
-        process.env.SUPABASE_URL ||
-        process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        "https://tfcxufkprwywemxyyeqd.supabase.co";
+      const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      if (!supabaseUrl) return null;
+      let projectRef = "";
+      try {
+        projectRef = new URL(supabaseUrl).hostname.split(".")[0];
+      } catch {}
       return {
-        projectRef: "tfcxufkprwywemxyyeqd",
-        host: "tfcxufkprwywemxyyeqd.supabase.co",
+        projectRef,
+        host: projectRef ? `${projectRef}.supabase.co` : "",
         port: "443",
         supabaseUrl,
         apiKey: resolvedKey,
@@ -99,7 +103,6 @@ export function parseSupabaseConnection(connStr?: string): SupabaseConfig | null
         projectRef = parts[1];
       }
     }
-    if (!projectRef) projectRef = "tfcxufkprwywemxyyeqd";
 
     const host = parsed.hostname;
     const port = parsed.port || "6543";
@@ -132,7 +135,7 @@ export function getSupabaseClient(): SupabaseClient | null {
     process.env.SUPABASE_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL ||
     config?.supabaseUrl ||
-    "https://tfcxufkprwywemxyyeqd.supabase.co";
+    "";
 
   const supabaseKey = getResolvedSupabaseKey() || config?.apiKey;
 

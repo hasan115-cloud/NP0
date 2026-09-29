@@ -24,6 +24,12 @@ export const SecurityRulesView: React.FC = () => {
   const [phishSeverity, setPhishSeverity] = useState<"HIGH" | "CRITICAL">("HIGH");
   const [phishReason, setPhishReason] = useState("");
   const [isAddingPhish, setIsAddingPhish] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  const showStatus = (text: string, isError = false) => {
+    setStatusMsg({ text, isError });
+    setTimeout(() => setStatusMsg(null), 3500);
+  };
 
   const loadRules = async () => {
     setIsLoading(true);
@@ -50,21 +56,22 @@ export const SecurityRulesView: React.FC = () => {
       await addWhitelistRule(whitePattern.trim(), whiteDesc.trim());
       setWhitePattern("");
       setWhiteDesc("");
+      showStatus("Whitelist rule added successfully");
       loadRules();
     } catch (e) {
-      alert("Failed to add whitelist rule");
+      showStatus("Failed to add whitelist rule", true);
     } finally {
       setIsAddingWhite(false);
     }
   };
 
   const handleDeleteWhitelist = async (id: string) => {
-    if (!confirm("Are you sure you want to remove this whitelist rule?")) return;
     try {
       await deleteWhitelistRule(id);
+      showStatus("Whitelist rule removed");
       loadRules();
     } catch (e) {
-      alert("Failed to delete whitelist rule");
+      showStatus("Failed to delete whitelist rule", true);
     }
   };
 
@@ -76,21 +83,22 @@ export const SecurityRulesView: React.FC = () => {
       await addPhishingRule(phishPattern.trim(), phishSeverity, phishReason.trim());
       setPhishPattern("");
       setPhishReason("");
+      showStatus("Phishing interception policy added");
       loadRules();
     } catch (e) {
-      alert("Failed to add phishing rule");
+      showStatus("Failed to add phishing rule", true);
     } finally {
       setIsAddingPhish(false);
     }
   };
 
   const handleDeletePhishing = async (id: string) => {
-    if (!confirm("Are you sure you want to remove this phishing rule?")) return;
     try {
       await deletePhishingRule(id);
+      showStatus("Phishing policy rule removed");
       loadRules();
     } catch (e) {
-      alert("Failed to delete phishing rule");
+      showStatus("Failed to delete phishing rule", true);
     }
   };
 
@@ -116,6 +124,19 @@ export const SecurityRulesView: React.FC = () => {
           <span className="text-neutral-300">Heartbeat Sync: <strong className="text-emerald-400">Real-Time</strong></span>
         </div>
       </div>
+
+      {statusMsg && (
+        <div
+          className={`px-4 py-2.5 rounded-lg text-xs font-medium flex items-center justify-between transition-all ${
+            statusMsg.isError
+              ? "bg-rose-500/15 border border-rose-500/30 text-rose-300"
+              : "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+          }`}
+        >
+          <span>{statusMsg.text}</span>
+          <button onClick={() => setStatusMsg(null)} className="opacity-70 hover:opacity-100 text-xs">✕</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Area A: Whitelist Rules */}

@@ -12,6 +12,7 @@ export async function generateExtensionZip(currentServerUrl: string): Promise<Bu
   }
 
   const files = fs.readdirSync(EXTENSION_DIR);
+  const cleanServerUrl = (currentServerUrl || "").replace(/\/$/, "");
 
   for (const filename of files) {
     const filePath = path.join(EXTENSION_DIR, filename);
@@ -19,11 +20,11 @@ export async function generateExtensionZip(currentServerUrl: string): Promise<Bu
 
     if (stat.isFile()) {
       if (filename === "config.js") {
-        // Dynamically inject the active server origin into config.js
+        // Dynamically inject the active production server origin into config.js
         const dynamicConfig = `// PhishGuard Extension Configuration
 // Automatically configured by PhishGuard Enterprise Security Hub
 const PHISHGUARD_DEFAULT_CONFIG = {
-    SERVER_URL: "${currentServerUrl}"
+    SERVER_URL: "${cleanServerUrl}"
 };
 
 if (typeof self !== "undefined") {
@@ -41,13 +42,32 @@ if (typeof module !== "undefined" && module.exports) {
         // Ensure default BACKEND_URL starts with the current server URL
         let bgCode = fs.readFileSync(filePath, "utf-8");
         bgCode = bgCode.replace(
-          /let BACKEND_URL = ["'][^"']+["'];/,
-          `let BACKEND_URL = "${currentServerUrl}";`
+          /let BACKEND_URL = ["'][^"']*["'];/,
+          `let BACKEND_URL = "${cleanServerUrl}";`
         );
         zip.file(filename, bgCode);
-      } else if (filename.toLowerCase().endsWith(".png") || filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".ico")) {
-        // Any binary image asset (icon16/48/128.png, icon.png, etc.) must be
-        // copied as raw bytes — reading it as utf-8 text corrupts the PNG.
+      } else if (filename === "popup.js") {
+        // Ensure default currentServer starts with current server URL
+        let popupCode = fs.readFileSync(filePath, "utf-8");
+        popupCode = popupCode.replace(
+          /let currentServer\s*=\s*["'][^"']*["'];/,
+          `let currentServer = "${cleanServerUrl}";`
+        );
+        zip.file(filename, popupCode);
+      } else if (filename === "popup.html") {
+        // Update input placeholder to match production server
+        let popupHtml = fs.readFileSync(filePath, "utf-8");
+        popupHtml = popupHtml.replace(
+          /placeholder=["'][^"']*localhost[^"']*["']/i,
+          `placeholder="${cleanServerUrl}"`
+        );
+        zip.file(filename, popupHtml);
+      } else if (
+        filename.toLowerCase().endsWith(".png") ||
+        filename.toLowerCase().endsWith(".jpg") ||
+        filename.toLowerCase().endsWith(".ico")
+      ) {
+        // Any binary image asset must be copied as raw bytes
         const bin = fs.readFileSync(filePath);
         zip.file(filename, bin);
       } else {

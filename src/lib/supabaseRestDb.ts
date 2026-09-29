@@ -77,7 +77,7 @@ export class SupabaseRestDatabase implements IDatabase {
       browser: r.browser || "Chrome",
       os: r.os || "Linux",
       platform: r.platform || "x86_64",
-      ip: r.ip || "127.0.0.1",
+      ip: r.ip || "remote-ip",
       telemetryStats: { totalScanned: 0, phishingBlocked: 0, suspiciousDetected: 0, safeEvaluated: 0 }
     };
   }
@@ -281,7 +281,7 @@ export class SupabaseRestDatabase implements IDatabase {
       browser: payload.browser || "Chrome",
       os: payload.os || "Linux",
       platform: payload.platform || "x86_64",
-      ip: payload.ip || "127.0.0.1"
+      ip: payload.ip || "remote-ip"
     };
 
     this.memoryCache.clients.set(payload.clientId, row);

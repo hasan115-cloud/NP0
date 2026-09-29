@@ -14,8 +14,11 @@ export const ThreatAlertsView: React.FC<ThreatAlertsViewProps> = ({ clients, onA
   const [selectedClient, setSelectedClient] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const loadAlerts = async () => {
     setIsLoading(true);
+    setActionError(null);
     try {
       const data = await fetchThreatAlerts(selectedClient);
       setAlerts(data);
@@ -32,11 +35,13 @@ export const ThreatAlertsView: React.FC<ThreatAlertsViewProps> = ({ clients, onA
 
   const handleStatusChange = async (id: string, newStatus: "ACKNOWLEDGED" | "RESOLVED") => {
     try {
+      setActionError(null);
       await updateAlertStatus(id, newStatus);
       loadAlerts();
       onAlertUpdated();
     } catch (e) {
-      alert("Failed to update alert status");
+      setActionError("Failed to update alert status");
+      setTimeout(() => setActionError(null), 3500);
     }
   };
 
@@ -70,6 +75,13 @@ export const ThreatAlertsView: React.FC<ThreatAlertsViewProps> = ({ clients, onA
           <span>Refresh Alerts</span>
         </button>
       </div>
+
+      {actionError && (
+        <div className="bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs px-4 py-2.5 rounded-lg flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="opacity-70 hover:opacity-100 text-xs">✕</button>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="bg-[#0e0e0e] border border-[#262626] p-4 rounded-xl flex flex-wrap gap-3 items-center justify-between">

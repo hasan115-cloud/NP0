@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { classifyUrl } from "@/lib/detector";
 import { generateExtensionZip } from "@/lib/extensionPackager";
+import { getPublicServerUrl } from "@/lib/serverUrl";
+import { isValidMonitoredUrl } from "@/lib/urlValidator";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-ID",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-ID, X-Requested-With, Accept, Origin",
+  "Access-Control-Max-Age": "86400",
 };
 
 function json(data: any, status = 200) {
@@ -16,19 +19,12 @@ function json(data: any, status = 200) {
   });
 }
 
-function getPublicServerUrl(req: NextRequest): string {
-  if (process.env.APP_URL) {
-    return process.env.APP_URL.replace(/\/$/, "");
-  }
-  const host = req.headers.get("host") || "localhost:3000";
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  return `${proto}://${host}`;
-}
-
 function getClientIp(req: NextRequest): string {
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  return "unknown";
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  return "remote-workstation";
 }
 
 export async function OPTIONS() {
@@ -67,7 +63,7 @@ export async function GET(
         database: dbInfo.isSupabase ? "supabase" : "local",
         databaseHost: dbInfo.host,
         persistenceWarning: db.isPossiblyEphemeralDeployment()
-          ? "This process is running in a serverless-style environment (NETLIFY/AWS_LAMBDA_FUNCTION_NAME detected). Local disk storage is not guaranteed to be shared or persistent across function instances — run this server as a single long-lived process for guaranteed data consistency."
+          ? "This process is running on Vercel serverless. To persist fleet telemetry across all workstations and function invocations, configure DATABASE_URL (or SUPABASE_URL / SUPABASE_KEY) in your Vercel Project Settings."
           : null,
       });
     }
@@ -227,6 +223,7 @@ export async function POST(
   const slug = resolved.slug || [];
   const p0 = slug[0] || "";
   const p1 = slug[1] || "";
+  const host = req.headers.get("host") || undefined;
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -285,6 +282,18 @@ export async function POST(
         return json({ error: "URL is required" }, 400);
       }
 
+      // Check if candidate URL is an internal or excluded asset/dashboard URL
+      if (!isValidMonitoredUrl(url, host)) {
+        return json({
+          verdict: "SAFE",
+          action: "ALLOWED",
+          score: 0.0,
+          domain: "",
+          reasons: ["Internal navigation or web asset bypassed"],
+          skipped: true,
+        });
+      }
+
       if (clientId && clientId !== "anonymous" && !(await db.clientExists(clientId))) {
         const ip = getClientIp(req);
         await db.registerOrUpdateClient({ clientId, clientName, ip });
@@ -292,9 +301,8 @@ export async function POST(
 
       const result = await classifyUrl(url);
 
-      let recordedEvent: any = null;
       try {
-        const rec = await db.recordUrlEvent({
+        await db.recordUrlEvent({
           eventId: typeof eventId === "string" ? eventId : undefined,
           clientId,
           clientName,
@@ -308,7 +316,6 @@ export async function POST(
           ruleTriggered: Boolean(result.whitelisted || result.policyMatched),
           ruleType: result.ruleType || null,
         });
-        recordedEvent = rec?.event;
 
         if (result.verdict === "PHISHING") {
           await db.recordThreatAlert({
@@ -339,11 +346,10 @@ export async function POST(
 
     // POST /api/bulk-scan
     if (p0 === "bulk-scan") {
-      const { urls, eventIds, source = "extension-bulk", clientId = "anonymous", clientName = "Workstation" } = body;
+      const { urls, source = "extension-bulk", clientId = "anonymous", clientName = "Workstation" } = body;
       if (!Array.isArray(urls)) {
         return json({ error: "urls array is required" }, 400);
       }
-      const ids: (string | undefined)[] = Array.isArray(eventIds) ? eventIds : [];
 
       if (clientId && clientId !== "anonymous" && !(await db.clientExists(clientId))) {
         const ip = getClientIp(req);
@@ -351,34 +357,53 @@ export async function POST(
       }
 
       const results = await Promise.all(
-        urls.map(async (u, i) => {
+        urls.map(async (u) => {
+          if (!isValidMonitoredUrl(u, host)) {
+            return {
+              url: u,
+              verdict: "SAFE",
+              score: 0.0,
+              risk_score: 0.0,
+              domain: "",
+              reasons: ["Asset or internal link bypassed"],
+            };
+          }
+
           const result = await classifyUrl(u);
 
-          await db.recordUrlEvent({
-            eventId: typeof ids[i] === "string" ? ids[i] : undefined,
-            clientId,
-            clientName,
-            url: u,
-            domain: result.domain,
-            classification: result.verdict,
-            verdict: result.action,
-            score: result.score,
-            reason: result.reasons[0] || "Clean heuristics",
-            source,
-            ruleTriggered: Boolean(result.whitelisted || result.policyMatched),
-            ruleType: result.ruleType || null,
-          });
+          // In-page bulk link evaluation: only record into URL history if it matches a threat
+          // (PHISHING or SUSPICIOUS) or a configured policy rule. Background page links should not
+          // flood history with unvisited benign URLs.
+          if (result.verdict === "PHISHING" || result.verdict === "SUSPICIOUS" || result.policyMatched) {
+            try {
+              await db.recordUrlEvent({
+                clientId,
+                clientName,
+                url: u,
+                domain: result.domain,
+                classification: result.verdict,
+                verdict: result.action,
+                score: result.score,
+                reason: result.reasons[0] || "Threat rule matched",
+                source,
+                ruleTriggered: Boolean(result.whitelisted || result.policyMatched),
+                ruleType: result.ruleType || null,
+              });
 
-          if (result.verdict === "PHISHING") {
-            await db.recordThreatAlert({
-              clientId,
-              clientName,
-              url: u,
-              domain: result.domain,
-              score: result.score,
-              reasons: result.reasons,
-              source,
-            });
+              if (result.verdict === "PHISHING") {
+                await db.recordThreatAlert({
+                  clientId,
+                  clientName,
+                  url: u,
+                  domain: result.domain,
+                  score: result.score,
+                  reasons: result.reasons,
+                  source,
+                });
+              }
+            } catch (err) {
+              console.warn("Notice: bulk-scan threat record error:", err);
+            }
           }
 
           return {
@@ -418,7 +443,7 @@ export async function POST(
 
       const alert = await db.recordThreatAlert({
         clientId: clientId || "anonymous",
-        clientName: clientName || "Agent",
+        clientName: clientName || "Workstation",
         url,
         domain: parsedDomain,
         score: typeof score === "number" ? score : 0.9,
@@ -445,7 +470,7 @@ export async function POST(
       return json({ success: true, rule });
     }
 
-    // POST /api/url-events (Batch telemetry ingest)
+    // POST /api/url-events (Batch telemetry ingest from extension)
     if (p0 === "url-events") {
       const { clientId = "anonymous", clientName = "Workstation", events } = body;
       if (!Array.isArray(events)) {
@@ -470,6 +495,13 @@ export async function POST(
 
         if (!url || typeof url !== "string" || !eventId || typeof eventId !== "string") {
           invalid++;
+          continue;
+        }
+
+        if (!isValidMonitoredUrl(url, host)) {
+          invalid++;
+          // Acknowledge skipped/invalid URLs so the client does not indefinitely retry them
+          acceptedIds.push(eventId);
           continue;
         }
 

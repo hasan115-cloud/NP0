@@ -16,7 +16,7 @@ import { fetchServerInfo, getDownloadExtensionUrl } from "../api";
 
 export const InstallExtensionView: React.FC = () => {
   const [serverInfo, setServerInfo] = useState<{ serverUrl: string; version: string; status: string }>({
-    serverUrl: window.location.origin,
+    serverUrl: typeof window !== "undefined" ? window.location.origin : "",
     version: "1.4.0",
     status: "operational"
   });

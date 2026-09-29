@@ -198,7 +198,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ clients }) => {
       doc.save(`phishguard-report-${isGlobal ? "all-systems" : selectedSystem}-${Date.now()}.pdf`);
     } catch (err) {
       console.error("PDF generation failed", err);
-      alert("Failed to generate PDF report.");
+      setError("Failed to generate PDF report.");
     }
   };
 

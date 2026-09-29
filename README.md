@@ -1,81 +1,77 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# PhishGuard Enterprise Security Hub
 
-# Run and deploy your AI Studio app
+PhishGuard Enterprise Security Hub provides centralized security monitoring, telemetry, threat detection, policy management, and URL intelligence for PhishGuard Chrome Extensions across distributed workstations.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/527842af-703a-4390-ad08-98b5fcf6843f
+## Architecture Overview
 
-## Run Locally
+```
+Workstation A (Chrome Extension) ──┐
+Workstation B (Chrome Extension) ──┼──> Vercel API (/api/*) ──> PostgreSQL / Supabase Database
+Workstation C (Chrome Extension) ──┘           │
+                                               ▼
+                              Central Enterprise SOC Dashboard
+```
 
-**Prerequisites:**  Node.js
+- **Extension (Client MV3):** Intercepts navigations, performs local heuristic & policy evaluations, syncs rules from server, reports threat alerts, and streams durable URL telemetry.
+- **Server (Vercel Serverless / Next.js):** REST API endpoints (`/api/scan`, `/api/url-events`, `/api/clients/*`, `/api/rules/*`, `/api/threats/*`, `/api/reports`) with full CORS support.
+- **Database (PostgreSQL / Supabase):** Real persistent database storing enrolled systems, complete URL history, active threat alerts, whitelist rules, and phishing policies.
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Deploying to Vercel
 
-## Data persistence
+### Step 1: Provision Database (PostgreSQL / Supabase)
+1. In your [Supabase Dashboard](https://supabase.com/dashboard) (or Neon / Cloud SQL):
+   - Go to **Project Settings → Database → Connection string**.
+   - Select **Transaction pooler** (port `6543`), or copy the direct connection URI.
+2. Formatted connection string:
+   ```
+   postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?pgbouncer=true
+   ```
 
-PhishGuard stores enrolled systems, security rules, threat alerts, and the
-complete URL browsing history reported by the extension. There are two
-storage backends, and the server picks between them automatically:
+### Step 2: Deploy to Vercel
+1. Push your repository to GitHub / GitLab / Bitbucket.
+2. In [Vercel Dashboard](https://vercel.com/dashboard), click **Add New → Project** and import the repository.
+3. In **Settings → Environment Variables**, add:
+   - `DATABASE_URL` = your Supabase connection string from Step 1.
+   - `SUPABASE_URL` = (Optional) `https://[REF].supabase.co`
+   - `SUPABASE_KEY` = (Optional) your Supabase service_role or API key
+4. Click **Deploy**. Vercel will build and launch your production security hub.
 
-- **No `DATABASE_URL` set (default).** Data is stored in local files under
-  `data/` (`phishguard_db.json` for clients/rules/alerts, `url_events.jsonl`
-  as an append-only log for URL history). This is correct and fast for a
-  single, long-lived Node process — `npm run dev`, `npm start`, or any host
-  that runs one persistent server instance (a normal VM, a Docker container,
-  Cloud Run with `min-instances`/`max-instances` both set to 1, etc.).
+The database tables (`clients`, `url_events`, `threat_alerts`, `whitelist_rules`, `phishing_rules`, `heartbeats`) are verified and initialized automatically on first request with `CREATE TABLE IF NOT EXISTS`.
 
-- **`DATABASE_URL` set.** The server instead uses a real Postgres database
-  (see `src/lib/pgdb.ts`) — compatible with Supabase, Neon, Netlify DB, RDS,
-  or any self-hosted Postgres. **This is required for correct behavior on
-  Netlify Functions**, or any other deployment where more than one instance
-  of the server can be running at once: each serverless function instance
-  has its own independent filesystem, so local files written by one
-  instance are invisible to a different instance that answers the next
-  request — which is exactly what causes a dashboard count to look correct
-  immediately after a write and then appear to drop on the very next
-  refresh. Pointing every instance at the same external database removes
-  that problem, because they all read and write the same rows.
+---
 
-  To use it, set `DATABASE_URL` to a standard Postgres connection string in
-  your environment or Netlify site configuration. No other configuration
-  is needed — the schema is created automatically on first connection
-  (`CREATE TABLE IF NOT EXISTS`, safe to run on every cold start, and never
-  destroys existing data). TLS is handled automatically for non-local hosts.
+## Enrolling Client Workstations
 
-### Setting up Supabase as the database
+1. Open the deployed PhishGuard dashboard on any computer:
+   `https://[your-app].vercel.app`
+2. Navigate to **Install Extension** in the sidebar.
+3. Click **Download Extension (.ZIP)**.
+   - The server packages the Chrome Extension and injects the live production Vercel URL into `config.js`, `background.js`, `popup.js`, and `popup.html`.
+4. On any user workstation:
+   - Extract the downloaded ZIP.
+   - In Google Chrome / Brave / Edge, navigate to `chrome://extensions`.
+   - Enable **Developer mode** (toggle in top-right).
+   - Click **Load unpacked** and select the unzipped folder.
+5. The extension enrolls with your production server, pulls baseline security rules, and begins real-time protection.
 
-1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard)
-   (the free tier is enough for this app).
-2. Open **Project Settings → Database** and, under **Connection string**,
-   select the **Transaction pooler** tab (port `6543` — the right choice
-   for Netlify Functions or any environment that can run many instances at
-   once; a single long-lived process can instead use the **Session
-   pooler** or the direct connection on port `5432`).
-3. Copy the URI shown there — it looks like
-   `postgresql://postgres.xxxxxxxxxxxx:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:6543/postgres` —
-   and substitute your actual database password for `[YOUR-PASSWORD]`
-   (set when the project was created, or reset from that same page).
-4. Set that full string as `DATABASE_URL`:
-   - Locally, in a `.env` file (see `.env.example`).
-   - On Netlify, in **Site settings → Environment variables**, so the
-     deployed functions can see it too.
-5. Start the server (or redeploy). The first request creates every table
-   automatically — there is no separate migration step to run.
-6. Every scan the extension performs (`/api/scan`, `/api/bulk-scan`,
-   `/api/url-events`) now writes directly into your Supabase Postgres
-   database, and the dashboard's Overview, URL History, Threat Alerts, and
-   Reports views all read from those same rows.
+---
 
-`GET /api/info` reports a `persistenceWarning` field whenever the process is
-running in a detected serverless environment (`NETLIFY` or
-`AWS_LAMBDA_FUNCTION_NAME`) without `DATABASE_URL` set, so the risk is
-diagnosable from the API itself rather than only showing up as inconsistent
-dashboard counts.
+## Local Development
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Run local development server (binds to 0.0.0.0:3000)
+npm run dev
+
+# 3. Build production bundle
+npm run build
+
+# 4. Type check / lint
+npm run lint
+```

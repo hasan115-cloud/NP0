@@ -7,11 +7,46 @@ try {
     console.warn("Could not import config.js in service worker:", e);
 }
 
-let BACKEND_URL = "http://localhost:3000";
+let BACKEND_URL = (typeof PHISHGUARD_DEFAULT_CONFIG !== "undefined" && PHISHGUARD_DEFAULT_CONFIG.SERVER_URL)
+    ? PHISHGUARD_DEFAULT_CONFIG.SERVER_URL.trim().replace(/\/$/, "")
+    : "";
 const CACHE_TTL_MS      = 15 * 60 * 1000;  // 15 min verdict cache
 const FETCH_TIMEOUT_MS  = 10 * 1000;        // 10 s per single scan
 const BULK_TIMEOUT_MS   = 25 * 1000;        // 25 s for bulk scan
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;   // 30 seconds heartbeat
+
+// ─── Monitored URL validation ───────────────────────────────────────────────
+function isValidMonitoredUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== "string") return false;
+    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) return false;
+    try {
+        const u = new URL(rawUrl);
+        const host = u.hostname.toLowerCase();
+        if (BACKEND_URL) {
+            try {
+                const bHost = new URL(BACKEND_URL).hostname.toLowerCase();
+                if (host === bHost) return false;
+            } catch {}
+        }
+        const pathname = u.pathname.toLowerCase();
+        if (
+            pathname.startsWith("/api/") ||
+            pathname.startsWith("/download-extension") ||
+            pathname.startsWith("/extension/") ||
+            pathname.startsWith("/warning") ||
+            pathname === "/health" ||
+            pathname === "/info"
+        ) {
+            return false;
+        }
+        if (/\.(png|jpe?g|gif|svg|ico|webp|bmp|css|js|mjs|map|woff2?|ttf|eot|mp4|webm|mp3|wav|json|xml)$/i.test(pathname)) {
+            return false;
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 // ─── In-memory state ────────────────────────────────────────────────────────
 const verdictCache = new Map();   // url  → { time, data }
@@ -314,7 +349,7 @@ function newEventId() {
 // server already stored that id, the replay is recognised as a duplicate
 // instead of becoming a second history row for a single visit.
 async function enqueueUrlEvent(url, source, eventId) {
-    if (!url || (!url.startsWith("http://") && !url.startsWith("https://"))) return;
+    if (!isValidMonitoredUrl(url)) return;
     try {
         if (!clientId) await initServerConfig();
         const { [QUEUE_KEY]: queue = [] } = await chrome.storage.local.get(QUEUE_KEY);
@@ -387,10 +422,25 @@ async function flushUrlEventQueue() {
 // ─── Rule match check ────────────────────────────────────────────────────────
 function matchesRuleSet(url, ruleSet) {
     try {
-        const host = new URL(url).hostname.toLowerCase();
-        for (const pattern of ruleSet) {
-            if (host === pattern || host.endsWith("." + pattern) || url.toLowerCase().includes(pattern)) {
-                return pattern;
+        const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+        const u = url.toLowerCase();
+        for (const rawPattern of ruleSet) {
+            const p = (rawPattern || "").trim().toLowerCase().replace(/^https?:\/\//, "");
+            if (!p) continue;
+            if (p.startsWith("*") && p.endsWith("*") && p.length > 2) {
+                const sub = p.slice(1, -1);
+                if (u.includes(sub) || host.includes(sub)) return rawPattern;
+            } else if (p.startsWith("*.")) {
+                const base = p.slice(2);
+                if (host === base || host.endsWith("." + base)) return rawPattern;
+            } else if (p.startsWith("*")) {
+                const suffix = p.slice(1);
+                if (host.endsWith(suffix) || u.endsWith(suffix)) return rawPattern;
+            } else if (p.endsWith("*")) {
+                const prefix = p.slice(0, -1);
+                if (host.startsWith(prefix) || u.includes(prefix)) return rawPattern;
+            } else if (host === p || host.endsWith("." + p) || u.includes(p)) {
+                return rawPattern;
             }
         }
     } catch { }
@@ -424,6 +474,9 @@ async function isTrusted(url) {
 
 // ─── Real URL Scanning & Telemetry Relay ───────────────────────────────────
 async function scanUrl(url, source = "extension-navigation") {
+    if (!isValidMonitoredUrl(url)) {
+        return { verdict: "SAFE", score: 0.0, skipped: true, reasons: ["Excluded asset or internal destination"] };
+    }
     // ONE observation == ONE eventId, minted here, before any branch is
     // taken. Whichever path below resolves the verdict, this same id is what
     // reaches the server, so the observation is recorded exactly once.
@@ -590,8 +643,8 @@ async function bulkScanUrls(urls, source = "extension-link") {
 // ─── Real Threat Notification & Alert Relay ────────────────────────────────
 // Fires the native OS notification (Windows toast / macOS banner / Linux
 // notification) directly from THIS machine's extension — never relayed
-// through the server, so it works identically on localhost and on every
-// remote installation, independent of the central server's own OS.
+// through the server, so it works identically across all remote workstations
+// and installations, independent of the central server's own OS.
 function triggerPhishingAlarm(url, score, reasons) {
     if (!chrome.notifications) {
         console.warn("PhishGuard: chrome.notifications API unavailable in this browser context");
@@ -681,7 +734,7 @@ function redirectToWarning(tabId, url, data, verdict = "PHISHING") {
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     if (details.frameId !== 0) return;
     const url = details.url;
-    if (!url.startsWith("http://") && !url.startsWith("https://")) return;
+    if (!isValidMonitoredUrl(url)) return;
 
     if (bypassedUrls.has(url)) {
         bypassedUrls.delete(url);

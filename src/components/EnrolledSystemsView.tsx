@@ -27,6 +27,7 @@ export const EnrolledSystemsView: React.FC<EnrolledSystemsViewProps> = ({ client
   const [clientAlerts, setClientAlerts] = useState<ThreatAlert[]>([]);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
   const [search, setSearch] = useState("");
 
   const filteredClients = clients.filter(c =>
@@ -37,16 +38,15 @@ export const EnrolledSystemsView: React.FC<EnrolledSystemsViewProps> = ({ client
     c.ip.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleDeleteClient = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to permanently unenroll and remove ${name} (${id}) from the database?`)) {
-      return;
-    }
+  const confirmDeleteClient = async () => {
+    if (!clientToDelete) return;
     setIsDeleting(true);
     try {
-      await deleteClient(id);
-      if (selectedClient?.id === id) {
+      await deleteClient(clientToDelete.id);
+      if (selectedClient?.id === clientToDelete.id) {
         setSelectedClient(null);
       }
+      setClientToDelete(null);
       onRefresh?.();
     } catch (e) {
       console.error("Failed to unenroll client:", e);
@@ -223,7 +223,7 @@ export const EnrolledSystemsView: React.FC<EnrolledSystemsViewProps> = ({ client
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteClient(client.id, client.clientName);
+                              setClientToDelete({ id: client.id, name: client.clientName });
                             }}
                             disabled={isDeleting}
                             className="p-1 text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
@@ -360,7 +360,7 @@ export const EnrolledSystemsView: React.FC<EnrolledSystemsViewProps> = ({ client
 
             <div className="pt-4 border-t border-[#262626] flex items-center gap-3">
               <button
-                onClick={() => handleDeleteClient(selectedClient.id, selectedClient.clientName)}
+                onClick={() => setClientToDelete({ id: selectedClient.id, name: selectedClient.clientName })}
                 disabled={isDeleting}
                 className="flex-1 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
               >
@@ -372,6 +372,34 @@ export const EnrolledSystemsView: React.FC<EnrolledSystemsViewProps> = ({ client
                 className="flex-1 py-2 bg-[#161616] hover:bg-[#232323] text-neutral-300 hover:text-white rounded-lg text-xs font-medium"
               >
                 Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#121212] border border-[#262626] rounded-xl max-w-md w-full p-5 shadow-2xl">
+            <h3 className="text-sm font-bold text-white mb-2">Unenroll & Remove Workstation</h3>
+            <p className="text-xs text-neutral-400 mb-4">
+              Are you sure you want to permanently unenroll and remove <strong className="text-white">{clientToDelete.name}</strong> (<code className="text-neutral-300">{clientToDelete.id}</code>) from the database?
+            </p>
+            <div className="flex items-center gap-3 justify-end">
+              <button
+                onClick={() => setClientToDelete(null)}
+                disabled={isDeleting}
+                className="px-3 py-1.5 rounded-lg text-xs text-neutral-300 hover:bg-[#232323]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteClient}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {isDeleting ? "Removing..." : "Confirm Unenroll"}
               </button>
             </div>
           </div>

@@ -22,7 +22,7 @@ import {
  *
  * The file-backed store (FileDatabase, server/db.ts) is correct and fast
  * for a single long-lived process, but it cannot be correct across
- * multiple independent serverless function instances: each Netlify
+ * multiple independent serverless function instances: each Vercel Serverless
  * Function / Lambda container gets its OWN filesystem, so a URL event
  * written by the instance that handled the extension's POST is simply
  * invisible to a different instance that happens to handle the next
@@ -39,7 +39,7 @@ import {
  *
  * Used automatically whenever DATABASE_URL is set (see server/db.ts for
  * the selection). Works with any standard Postgres-wire-protocol database
- * — Neon, Supabase, Netlify DB, RDS, or a self-hosted instance.
+ * — Neon, Supabase, Cloud SQL, RDS, or a self-hosted instance.
  *
  * Idempotency (the extension's offline-queue replay guarantee) is enforced
  * with a database-level UNIQUE constraint on event_id, using
@@ -202,7 +202,7 @@ export class PostgresDatabase implements IDatabase {
 
       -- Ensure fallback workstation exists for foreign key constraints
       INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
-      VALUES ('anonymous', 'Default Workstation', now(), now(), 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+      VALUES ('anonymous', 'Default Workstation', now(), now(), 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', 'remote-workstation')
       ON CONFLICT (id) DO NOTHING;
     `);
 
@@ -272,7 +272,7 @@ export class PostgresDatabase implements IDatabase {
       browser: r.browser || "Chrome",
       os: r.os || "Linux",
       platform: r.platform || "x86_64",
-      ip: r.ip || "127.0.0.1",
+      ip: r.ip || "remote-ip",
       // Populated by attachTelemetry() from the authoritative event log —
       // never trusted from a stored counter, for the same reason the file
       // store derives it: an extension-reported counter can drift.
@@ -446,7 +446,7 @@ export class PostgresDatabase implements IDatabase {
         payload.browser || "Chrome",
         payload.os || "Linux",
         payload.platform || "x86_64",
-        payload.ip || "127.0.0.1"
+        payload.ip || "remote-ip"
       ]
     );
     return this.attachTelemetry(this.mapClient(rows[0]));
@@ -553,7 +553,7 @@ export class PostgresDatabase implements IDatabase {
     // Ensure client row exists to satisfy foreign key constraint fk_threat_alerts_client
     await this.q(
       `INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
-       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', 'remote-ip')
        ON CONFLICT (id) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
       [cId, cName, now]
     );
@@ -607,7 +607,7 @@ export class PostgresDatabase implements IDatabase {
     // Ensure client row exists to satisfy foreign key constraint fk_url_events_client
     await this.q(
       `INSERT INTO clients (id, client_name, first_seen, last_seen, status, extension_version, browser, os, platform, ip)
-       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', '127.0.0.1')
+       VALUES ($1, $2, $3, $3, 'ENROLLED', '1.4', 'Chrome', 'Linux', 'x86_64', 'remote-ip')
        ON CONFLICT (id) DO UPDATE SET last_seen = EXCLUDED.last_seen`,
       [cId, cName, occurred]
     );

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateExtensionZip } from "@/lib/extensionPackager";
+import { getPublicServerUrl } from "@/lib/serverUrl";
 
 export async function GET(req: NextRequest) {
-  const host = req.headers.get("host") || "localhost:3000";
-  const proto = req.headers.get("x-forwarded-proto") || "http";
-  const serverUrl = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, "") : `${proto}://${host}`;
+  const serverUrl = getPublicServerUrl(req);
 
   try {
     const zipBuffer = await generateExtensionZip(serverUrl);
@@ -18,6 +17,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: "Failed to generate extension package", message: err?.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to generate extension package", message: err?.message },
+      { status: 500 }
+    );
   }
 }

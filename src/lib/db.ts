@@ -432,7 +432,7 @@ class FileDatabase implements IDatabase {
         browser: payload.browser || "Chrome",
         os: payload.os || "Linux",
         platform: payload.platform || "x86_64",
-        ip: payload.ip || "127.0.0.1",
+        ip: payload.ip || "remote-ip",
         telemetryStats: {
           totalScanned: 0,
           phishingBlocked: 0,
@@ -883,7 +883,8 @@ function selectDatabase(): IDatabase {
   let restDb: SupabaseRestDatabase | null = null;
   if (supabaseClient) {
     try {
-      restDb = new SupabaseRestDatabase(supabaseClient, config?.supabaseUrl || "https://tfcxufkprwywemxyyeqd.supabase.co");
+      const targetUrl = config?.supabaseUrl || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      restDb = new SupabaseRestDatabase(supabaseClient, targetUrl);
       console.log("PhishGuard: Initialized Supabase REST database client (supports Vercel serverless & API keys).");
     } catch (e) {
       console.warn("Notice: Failed to initialize Supabase REST database:", e);
@@ -898,7 +899,7 @@ function selectDatabase(): IDatabase {
     return new ResilientDatabase(pgDb, secondary);
   }
 
-  // If Supabase REST client is available (e.g. sb_publishable key or SUPABASE_KEY set)
+  // If Supabase REST client is available
   if (restDb) {
     return new ResilientDatabase(restDb, fileDb);
   }
@@ -907,4 +908,10 @@ function selectDatabase(): IDatabase {
   return fileDb;
 }
 
-export const db: IDatabase = selectDatabase();
+declare global {
+  // eslint-disable-next-line no-var
+  var __phishguard_db_instance: IDatabase | undefined;
+}
+
+export const db: IDatabase = globalThis.__phishguard_db_instance || (globalThis.__phishguard_db_instance = selectDatabase());
+
